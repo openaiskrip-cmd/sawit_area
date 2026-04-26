@@ -32,54 +32,57 @@
     <div class="info" id="imgInfo"></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/utif@1.1.0/UTIF.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/geotiff"></script>
 
 <script>
     async function loadTiff() {
         const fileName = document.getElementById('yearSelect').value;
         const canvas = document.getElementById('tiffCanvas');
-        const loading = document.getElementById('loading');
         const info = document.getElementById('imgInfo');
-        const ctx = canvas.getContext('2d');
-
+        const loading = document.getElementById('loading');
+        
         loading.style.display = 'block';
-        info.innerHTML = "Mengunduh...";
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        info.innerHTML = "Membaca data geospasial...";
 
         try {
             const response = await fetch('./' + fileName + '?v=' + new Date().getTime());
-            if (!response.ok) throw new Error("File tidak ditemukan");
+            const arrayBuffer = await response.arrayBuffer();
             
-            const buffer = await response.arrayBuffer();
-
-            // CEK VALIDASI: Jika file terlalu kecil, kemungkinan besar itu file LFS/Teks
-            if (buffer.byteLength < 1000) {
-                throw new Error("File terlalu kecil. Pastikan ini bukan file Git LFS pointer.");
+            // Menggunakan GeoTIFF.js
+            const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
+            const image = await tiff.getImage(); // Mengambil image pertama
+            
+            // Membaca data RGB
+            const data = await image.readRGB();
+            
+            canvas.width = image.getWidth();
+            canvas.height = image.getHeight();
+            const ctx = canvas.getContext('2d');
+            
+            const imageData = ctx.createImageData(canvas.width, canvas.height);
+            const rgba = imageData.data;
+            
+            // GeoTIFF.js menghasilkan RGB, kita perlu ubah ke RGBA untuk Canvas
+            let j = 0;
+            for (let i = 0; i < data.length; i += 3) {
+                rgba[j] = data[i];     // R
+                rgba[j+1] = data[i+1]; // G
+                rgba[j+2] = data[i+2]; // B
+                rgba[j+3] = 255;       // A (Alpha/Transparency)
+                j += 4;
             }
-
-            const ifds = UTIF.decode(buffer);
-            // PENTING: Gunakan cara ini untuk mendecode
-            UTIF.decodeImage(buffer, ifds[0]);
-
-            const rgba = UTIF.toRGBA8(ifds[0]);
-
-            canvas.width = ifds[0].width;
-            canvas.height = ifds[0].height;
-
-            const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
-            imgData.data.set(rgba);
             
-            ctx.putImageData(imgData, 0, 0);
+            ctx.putImageData(imageData, 0, 0);
+            
             loading.style.display = 'none';
-            info.innerHTML = `Berhasil: ${fileName}`;
+            info.innerHTML = `Selesai memuat Bangka Selatan: ${fileName}`;
 
         } catch (err) {
-            console.error("Detail Error:", err);
+            console.error(err);
             loading.style.display = 'none';
-            info.innerHTML = `<b style="color:red">Gagal: ${err.message}</b>`;
+            info.innerHTML = `<b style="color:red">Error: ${err.message}</b>`;
         }
     }
-
     window.onload = loadTiff;
 </script>
 
