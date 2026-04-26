@@ -32,57 +32,45 @@
     <div class="info" id="imgInfo"></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/geotiff"></script>
-
 <script>
-    async function loadTiff() {
+    function loadTiff() {
         const fileName = document.getElementById('yearSelect').value;
         const canvas = document.getElementById('tiffCanvas');
-        const info = document.getElementById('imgInfo');
         const loading = document.getElementById('loading');
-        
+        const info = document.getElementById('imgInfo');
+        const ctx = canvas.getContext('2d');
+
         loading.style.display = 'block';
-        info.innerHTML = "Membaca data geospasial...";
+        info.innerHTML = "Mengambil data: " + fileName;
 
-        try {
-            const response = await fetch('./' + fileName + '?v=' + new Date().getTime());
-            const arrayBuffer = await response.arrayBuffer();
-            
-            // Menggunakan GeoTIFF.js
-            const tiff = await GeoTIFF.fromArrayBuffer(arrayBuffer);
-            const image = await tiff.getImage(); // Mengambil image pertama
-            
-            // Membaca data RGB
-            const data = await image.readRGB();
-            
-            canvas.width = image.getWidth();
-            canvas.height = image.getHeight();
-            const ctx = canvas.getContext('2d');
-            
-            const imageData = ctx.createImageData(canvas.width, canvas.height);
-            const rgba = imageData.data;
-            
-            // GeoTIFF.js menghasilkan RGB, kita perlu ubah ke RGBA untuk Canvas
-            let j = 0;
-            for (let i = 0; i < data.length; i += 3) {
-                rgba[j] = data[i];     // R
-                rgba[j+1] = data[i+1]; // G
-                rgba[j+2] = data[i+2]; // B
-                rgba[j+3] = 255;       // A (Alpha/Transparency)
-                j += 4;
-            }
-            
-            ctx.putImageData(imageData, 0, 0);
-            
-            loading.style.display = 'none';
-            info.innerHTML = `Selesai memuat Bangka Selatan: ${fileName}`;
+        // Gunakan Fetch API (lebih modern dari XHR untuk GitHub Pages)
+        fetch(fileName)
+            .then(response => {
+                if (!response.ok) throw new Error("File tidak ditemukan");
+                return response.arrayBuffer();
+            })
+            .then(buffer => {
+                const ifds = UTIF.decode(buffer);
+                UTIF.decodeImage(buffer, ifds[0]);
+                const rgba = UTIF.toRGBA8(ifds[0]);
 
-        } catch (err) {
-            console.error(err);
-            loading.style.display = 'none';
-            info.innerHTML = `<b style="color:red">Error: ${err.message}</b>`;
-        }
+                canvas.width = ifds[0].width;
+                canvas.height = ifds[0].height;
+
+                const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
+                imgData.data.set(rgba);
+                
+                ctx.putImageData(imgData, 0, 0);
+                loading.style.display = 'none';
+                info.innerHTML = `Selesai: ${fileName} (${ifds[0].width}x${ifds[0].height} px)`;
+            })
+            .catch(err => {
+                console.error(err);
+                loading.style.display = 'none';
+                info.innerHTML = "<span style='color:red'>Gagal memuat file. Periksa nama file!</span>";
+            });
     }
+
     window.onload = loadTiff;
 </script>
 
