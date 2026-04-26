@@ -39,24 +39,31 @@
         const loading = document.getElementById('loading');
         const info = document.getElementById('imgInfo');
         const ctx = canvas.getContext('2d');
-
+    
         loading.style.display = 'block';
         info.innerHTML = "Mengambil data: " + fileName;
-
-        // Gunakan Fetch API (lebih modern dari XHR untuk GitHub Pages)
+    
         fetch(fileName)
             .then(response => {
                 if (!response.ok) throw new Error("File tidak ditemukan");
                 return response.arrayBuffer();
             })
             .then(buffer => {
+                // 1. Decode the TIFF structure
                 const ifds = UTIF.decode(buffer);
-                UTIF.decodeImage(buffer, ifds[0]);
+                
+                // 2. Decode the specific image data into the IFD object
+                // Use the array of IFDs directly
+                UTIF.decodeImage(buffer, ifds[0]); 
+    
+                // 3. Convert to RGBA
                 const rgba = UTIF.toRGBA8(ifds[0]);
-
+    
+                // Set canvas dimensions
                 canvas.width = ifds[0].width;
                 canvas.height = ifds[0].height;
-
+    
+                // 4. Put data onto canvas
                 const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
                 imgData.data.set(rgba);
                 
@@ -67,10 +74,10 @@
             .catch(err => {
                 console.error(err);
                 loading.style.display = 'none';
-                info.innerHTML = "<span style='color:red'>Gagal memuat file. Periksa nama file!</span>";
+                info.innerHTML = `<span style='color:red'>Gagal: ${err.message}</span>`;
             });
     }
-
+    
     window.onload = loadTiff;
 </script>
 
