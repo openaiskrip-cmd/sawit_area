@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Arsip TIFF - GitHub Pages</title>
-    <script src="https://cdn.jsdelivr.net/npm/utif@1.1.0/UTIF.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/utif.js/3.1.0/utif.min.js"></script>
+    
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: white; text-align: center; padding: 20px; }
         .card { max-width: 900px; margin: auto; background: #2d2d2d; padding: 30px; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -13,8 +14,8 @@
         #loading { display: none; margin: 20px; font-style: italic; color: #ffca28; }
     </style>
 </head>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/utif.js/3.1.0/utif.min.js"></script>
 <body>
+
 <div class="card">
     <h2>Visualisasi Data Tahunan (.tif)</h2>
     
@@ -33,32 +34,37 @@
 </div>
 
 <script>
-    function loadTiff() {
-    const fileName = document.getElementById('yearSelect').value;
-    const canvas = document.getElementById('tiffCanvas');
-    const loading = document.getElementById('loading');
-    const info = document.getElementById('imgInfo');
-    const ctx = canvas.getContext('2d');
+    async function loadTiff() {
+        const fileName = document.getElementById('yearSelect').value;
+        const canvas = document.getElementById('tiffCanvas');
+        const loading = document.getElementById('loading');
+        const info = document.getElementById('imgInfo');
+        const ctx = canvas.getContext('2d');
 
-    loading.style.display = 'block';
-    info.innerHTML = "Mengambil data: " + fileName;
+        // Reset tampilan
+        loading.style.display = 'block';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        info.innerHTML = "Mengambil data: " + fileName;
 
-    fetch(fileName)
-        .then(response => {
-            if (!response.ok) throw new Error("File tidak ditemukan (404)");
-            return response.arrayBuffer();
-        })
-        .then(buffer => {
-            // 1. Decode the TIFF structure
+        try {
+            const response = await fetch(fileName);
+            if (!response.ok) throw new Error("File tidak ditemukan atau path salah!");
+            
+            const buffer = await response.arrayBuffer();
+            
+            // Proses Decode
             const ifds = UTIF.decode(buffer);
             
-            // 2. Map and decode image data for the first page (index 0)
-            UTIF.decodeImage(buffer, ifds[0]); 
+            // DEBUG: Cek apakah UTIF terbaca
+            console.log("IFDs decoded:", ifds);
 
-            // 3. Convert to RGBA (Uint8Array)
+            // Melakukan decode untuk halaman pertama
+            UTIF.decodeImage(buffer, ifds[0]);
+
+            // Konversi ke format yang bisa dibaca Canvas (RGBA8)
             const rgba = UTIF.toRGBA8(ifds[0]);
 
-            // 4. Setup Canvas
+            // Samakan ukuran canvas dengan ukuran asli gambar
             canvas.width = ifds[0].width;
             canvas.height = ifds[0].height;
 
@@ -69,14 +75,16 @@
             
             loading.style.display = 'none';
             info.innerHTML = `Selesai: ${fileName} (${ifds[0].width}x${ifds[0].height} px)`;
-        })
-        .catch(err => {
-            console.error(err);
+
+        } catch (err) {
+            console.error("Detail Error:", err);
             loading.style.display = 'none';
-            info.innerHTML = `<span style='color:red'>Gagal: ${err.message}</span>`;
-        });
-}
-    
+            info.innerHTML = `<span style='color:orange'>Gagal: ${err.message}</span><br>
+                             <small>Pastikan file ada di folder yang sama dengan HTML ini.</small>`;
+        }
+    }
+
+    // Jalankan saat halaman pertama kali dibuka
     window.onload = loadTiff;
 </script>
 
