@@ -32,8 +32,10 @@
     <div class="info" id="imgInfo"></div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/utif@1.1.0/UTIF.min.js"></script>
+
 <script>
-    function loadTiff() {
+    async function loadTiff() {
         const fileName = document.getElementById('yearSelect').value;
         const canvas = document.getElementById('tiffCanvas');
         const loading = document.getElementById('loading');
@@ -41,34 +43,41 @@
         const ctx = canvas.getContext('2d');
 
         loading.style.display = 'block';
-        info.innerHTML = "Mengambil data: " + fileName;
+        info.innerHTML = "Mengunduh...";
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Gunakan Fetch API (lebih modern dari XHR untuk GitHub Pages)
-        fetch(fileName)
-            .then(response => {
-                if (!response.ok) throw new Error("File tidak ditemukan");
-                return response.arrayBuffer();
-            })
-            .then(buffer => {
-                const ifds = UTIF.decode(buffer);
-                UTIF.decodeImage(buffer, ifds[0]);
-                const rgba = UTIF.toRGBA8(ifds[0]);
+        try {
+            const response = await fetch('./' + fileName + '?v=' + new Date().getTime());
+            if (!response.ok) throw new Error("File tidak ditemukan");
+            
+            const buffer = await response.arrayBuffer();
 
-                canvas.width = ifds[0].width;
-                canvas.height = ifds[0].height;
+            // CEK VALIDASI: Jika file terlalu kecil, kemungkinan besar itu file LFS/Teks
+            if (buffer.byteLength < 1000) {
+                throw new Error("File terlalu kecil. Pastikan ini bukan file Git LFS pointer.");
+            }
 
-                const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
-                imgData.data.set(rgba);
-                
-                ctx.putImageData(imgData, 0, 0);
-                loading.style.display = 'none';
-                info.innerHTML = `Selesai: ${fileName} (${ifds[0].width}x${ifds[0].height} px)`;
-            })
-            .catch(err => {
-                console.error(err);
-                loading.style.display = 'none';
-                info.innerHTML = "<span style='color:red'>Gagal memuat file. Periksa nama file!</span>";
-            });
+            const ifds = UTIF.decode(buffer);
+            // PENTING: Gunakan cara ini untuk mendecode
+            UTIF.decodeImage(buffer, ifds[0]);
+
+            const rgba = UTIF.toRGBA8(ifds[0]);
+
+            canvas.width = ifds[0].width;
+            canvas.height = ifds[0].height;
+
+            const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
+            imgData.data.set(rgba);
+            
+            ctx.putImageData(imgData, 0, 0);
+            loading.style.display = 'none';
+            info.innerHTML = `Berhasil: ${fileName}`;
+
+        } catch (err) {
+            console.error("Detail Error:", err);
+            loading.style.display = 'none';
+            info.innerHTML = `<b style="color:red">Gagal: ${err.message}</b>`;
+        }
     }
 
     window.onload = loadTiff;
