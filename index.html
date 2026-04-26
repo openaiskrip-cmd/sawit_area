@@ -13,8 +13,8 @@
         #loading { display: none; margin: 20px; font-style: italic; color: #ffca28; }
     </style>
 </head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/utif.js/3.1.0/utif.min.js"></script>
 <body>
-
 <div class="card">
     <h2>Visualisasi Data Tahunan (.tif)</h2>
     
@@ -34,49 +34,48 @@
 
 <script>
     function loadTiff() {
-        const fileName = document.getElementById('yearSelect').value;
-        const canvas = document.getElementById('tiffCanvas');
-        const loading = document.getElementById('loading');
-        const info = document.getElementById('imgInfo');
-        const ctx = canvas.getContext('2d');
-    
-        loading.style.display = 'block';
-        info.innerHTML = "Mengambil data: " + fileName;
-    
-        fetch(fileName)
-            .then(response => {
-                if (!response.ok) throw new Error("File tidak ditemukan");
-                return response.arrayBuffer();
-            })
-            .then(buffer => {
-                // 1. Decode the TIFF structure
-                const ifds = UTIF.decode(buffer);
-                
-                // 2. Decode the specific image data into the IFD object
-                // Use the array of IFDs directly
-                UTIF.decodeImage(buffer, ifds[0]); 
-    
-                // 3. Convert to RGBA
-                const rgba = UTIF.toRGBA8(ifds[0]);
-    
-                // Set canvas dimensions
-                canvas.width = ifds[0].width;
-                canvas.height = ifds[0].height;
-    
-                // 4. Put data onto canvas
-                const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
-                imgData.data.set(rgba);
-                
-                ctx.putImageData(imgData, 0, 0);
-                loading.style.display = 'none';
-                info.innerHTML = `Selesai: ${fileName} (${ifds[0].width}x${ifds[0].height} px)`;
-            })
-            .catch(err => {
-                console.error(err);
-                loading.style.display = 'none';
-                info.innerHTML = `<span style='color:red'>Gagal: ${err.message}</span>`;
-            });
-    }
+    const fileName = document.getElementById('yearSelect').value;
+    const canvas = document.getElementById('tiffCanvas');
+    const loading = document.getElementById('loading');
+    const info = document.getElementById('imgInfo');
+    const ctx = canvas.getContext('2d');
+
+    loading.style.display = 'block';
+    info.innerHTML = "Mengambil data: " + fileName;
+
+    fetch(fileName)
+        .then(response => {
+            if (!response.ok) throw new Error("File tidak ditemukan (404)");
+            return response.arrayBuffer();
+        })
+        .then(buffer => {
+            // 1. Decode the TIFF structure
+            const ifds = UTIF.decode(buffer);
+            
+            // 2. Map and decode image data for the first page (index 0)
+            UTIF.decodeImage(buffer, ifds[0]); 
+
+            // 3. Convert to RGBA (Uint8Array)
+            const rgba = UTIF.toRGBA8(ifds[0]);
+
+            // 4. Setup Canvas
+            canvas.width = ifds[0].width;
+            canvas.height = ifds[0].height;
+
+            const imgData = ctx.createImageData(ifds[0].width, ifds[0].height);
+            imgData.data.set(rgba);
+            
+            ctx.putImageData(imgData, 0, 0);
+            
+            loading.style.display = 'none';
+            info.innerHTML = `Selesai: ${fileName} (${ifds[0].width}x${ifds[0].height} px)`;
+        })
+        .catch(err => {
+            console.error(err);
+            loading.style.display = 'none';
+            info.innerHTML = `<span style='color:red'>Gagal: ${err.message}</span>`;
+        });
+}
     
     window.onload = loadTiff;
 </script>
