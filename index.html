@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Visualisasi GeoTIFF - Diperbaiki</title>
-    <!-- Library GeoTIFF -->
     <script src="https://cdn.jsdelivr.net/npm/geotiff"></script>
-    <!-- Library Chart.js untuk Grafik -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #222; color: white; text-align: center; padding: 10px; }
@@ -15,9 +13,12 @@
         canvas { display: block; margin: auto; max-width: 100%; height: auto; }
         .info { margin-top: 10px; color: #ccc; font-size: 0.9em; font-style: italic; }
         
-        /* Tambahan Style untuk Legenda dan Grafik */
-        .legend-container { display: flex; align-items: center; justify-content: center; margin: 20px 0; gap: 15px; font-weight: bold;}
-        .legend-bar { width: 300px; height: 20px; background: linear-gradient(to right, black, white); border: 1px solid #777; border-radius: 4px;}
+        /* Style Legenda Sesuai Permintaan (Hitam & Putih) */
+        .legend-container { display: flex; align-items: center; justify-content: center; margin: 20px 0; gap: 30px; font-weight: bold;}
+        .legend-item { display: flex; align-items: center; gap: 10px; }
+        .legend-box { width: 25px; height: 25px; border-radius: 4px; border: 1px solid #fff; }
+        
+        /* Style Wadah Grafik */
         .chart-container { margin-top: 30px; background: #2a2a2a; padding: 15px; border-radius: 8px; border: 1px solid #555; }
     </style>
 </head>
@@ -36,24 +37,29 @@
         <canvas id="tiffCanvas"></canvas>
     </div>
     
-    <!-- Bagian Legenda -->
     <div id="legendContainer" class="legend-container" style="display: none;">
-        <span>0 (Min)</span>
-        <div class="legend-bar"></div>
-        <span id="legendMax">Max</span>
+        <div class="legend-item">
+            <div class="legend-box" style="background-color: black; border-color: #666;"></div>
+            <span>Tutupan Lahan Sawit</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-box" style="background-color: white; border-color: #ccc;"></div>
+            <span>Bukan Tutupan Lahan Sawit</span>
+        </div>
     </div>
 
     <div id="status" class="info">Memuat data...</div>
 
-    <!-- Bagian Grafik Histogram -->
     <div class="chart-container" id="chartWrapper" style="display: none;">
-        <h4>Distribusi Intensitas Piksel (Histogram)</h4>
-        <canvas id="histogramChart"></canvas>
+        <h4>Grafik Luas Lahan</h4>
+        <div style="max-width: 500px; margin: auto;">
+            <canvas id="areaChart"></canvas>
+        </div>
     </div>
 </div>
 
 <script>
-    let chartInstance = null; // Menyimpan instance chart agar bisa di-destroy saat ganti tahun
+    let chartInstance = null; // Menyimpan instance chart agar bisa di-reset saat ganti tahun
 
     async function loadAndFixTiff() {
         const fileName = document.getElementById('yearSelect').value;
@@ -61,7 +67,7 @@
         const status = document.getElementById('status');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-        // Reset tampilan
+        // Reset komponen UI sebelum memuat data baru
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         document.getElementById('legendContainer').style.display = 'none';
         document.getElementById('chartWrapper').style.display = 'none';
@@ -89,7 +95,7 @@
             
             const band0 = rasterData[0];
             
-            // 1. Cari nilai Max mentah
+            // 1. Cari nilai Max mentah untuk pembagian skala otomatis
             let maxVal = 0;
             for (let i = 0; i < band0.length; i++) {
                 if (band0[i] > maxVal) maxVal = band0[i];
@@ -97,18 +103,23 @@
 
             if (maxVal < 255) maxVal = 255; 
 
-            // Array untuk menyimpan data histogram (0-255)
-            const histogramData = new Array(256).fill(0);
+            // Variabel counter untuk menghitung luas lahan berdasarkan klasifikasi warna
+            let countSawit = 0;
+            let countBukanSawit = 0;
 
-            // 2. Normalisasi dan masukkan ke ImageData & Hitung Histogram
+            // 2. Normalisasi, Rendering Canvas, & Perhitungan Luas
             for (let i = 0, j = 0; i < band0.length; i++, j += 4) {
                 let scaledVal = Math.round((band0[i] / maxVal) * 255);
                 
                 if (scaledVal > 255) scaledVal = 255;
                 if (scaledVal < 0 || isNaN(scaledVal)) scaledVal = 0;
 
-                // Hitung frekuensi piksel untuk grafik
-                histogramData[scaledVal]++;
+                // Hitung klasifikasi (Sesuai logika: 0/Hitam = Sawit, selain itu/Putih = Bukan)
+                if (scaledVal === 0) {
+                    countSawit++;
+                } else {
+                    countBukanSawit++;
+                }
 
                 imageData.data[j]     = scaledVal; // R
                 imageData.data[j + 1] = scaledVal; // G
@@ -118,14 +129,31 @@
 
             ctx.putImageData(imageData, 0, 0);
             
-            // 3. Tampilkan dan Perbarui Legenda
+            // 3. Konversi Spasial Otomatis ke Hektar (Jika GeoTIFF memiliki metadata koordinat meter)
+            let areaFactor = 1;
+            let unitLabel = "Piksel";
+            try {
+                const res = image.getResolution();
+                if (res && Math.abs(res[0]) > 0.1) {
+                    // Jika resolusi spasial terdeteksi (misal resolusi 10m atau 30m)
+                    // Rumus: (Jumlah Piksel * (ResX * ResY)) / 10.000 untuk mengubah ke Hektar (ha)
+                    areaFactor = Math.abs(res[0] * res[1]) / 10000; 
+                    unitLabel = "Hektar (ha)";
+                }
+            } catch (e) {
+                console.log("Metadata resolusi tidak ditemukan, default menggunakan perhitungan piksel.");
+            }
+
+            const nilaiSawit = (countSawit * areaFactor).toFixed(2);
+            const nilaiBukanSawit = (countBukanSawit * areaFactor).toFixed(2);
+
+            // 4. Tampilkan Legenda
             document.getElementById('legendContainer').style.display = 'flex';
-            document.getElementById('legendMax').innerText = `${maxVal} (Max)`;
 
-            // 4. Buat Grafik
-            renderChart(fileName, histogramData);
+            // 5. Render Grafik Luas Lahan
+            renderChart(fileName, nilaiSawit, nilaiBukanSawit, unitLabel);
 
-            status.innerHTML = `Selesai memuat ${fileName}. Max Value mentah: ${maxVal}`;
+            status.innerHTML = `Selesai memuat ${fileName}. Luas Lahan Sawit: ${nilaiSawit} ${unitLabel}`;
 
         } catch (err) {
             console.error(err);
@@ -133,52 +161,56 @@
         }
     }
 
-    // Fungsi merender grafik histogram
-    function renderChart(title, data) {
+    // Fungsi menggambar grafik balok (Bar Chart) perbandingan luas lahan
+    function renderChart(title, dataSawit, dataBukanSawit, unit) {
         document.getElementById('chartWrapper').style.display = 'block';
-        const ctxChart = document.getElementById('histogramChart').getContext('2d');
+        const ctxChart = document.getElementById('areaChart').getContext('2d');
         
-        // Hancurkan chart sebelumnya jika ada (mencegah tumpang tindih canvas)
+        // Hancurkan chart lama jika ada agar tidak tumpang tindih saat ganti dropdown tahun
         if (chartInstance) {
             chartInstance.destroy();
         }
 
-        const labels = Array.from({length: 256}, (_, i) => i); // Label X: 0 - 255
-
         chartInstance = new Chart(ctxChart, {
             type: 'bar',
             data: {
-                labels: labels,
+                labels: ['Tutupan Lahan Sawit', 'Bukan Tutupan Lahan Sawit'],
                 datasets: [{
-                    label: `Frekuensi Nilai Piksel - ${title}`,
-                    data: data,
-                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1
+                    label: `Luas Lahan (${unit}) - Tahun ${title.replace('.tif', '')}`,
+                    data: [dataSawit, dataBukanSawit],
+                    backgroundColor: [
+                        'rgba(0, 0, 0, 0.85)',       // Balok hitam untuk Sawit
+                        'rgba(255, 255, 255, 0.85)'  // Balok putih untuk Bukan Sawit
+                    ],
+                    borderColor: [
+                        'rgba(255, 255, 255, 0.5)',  // Border putih tipis agar balok hitam terlihat di dark mode
+                        'rgba(0, 0, 0, 0.5)'
+                    ],
+                    borderWidth: 15
                 }]
             },
             options: {
                 responsive: true,
                 scales: {
-                    x: {
-                        title: { display: true, text: 'Intensitas Piksel (Normalisasi 0-255)', color: '#ccc' },
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: `Luas (${unit})`, color: '#ccc' },
                         ticks: { color: '#ccc' }
                     },
-                    y: {
-                        // Menggunakan skala logaritmik karena nilai 0 (background) biasanya mendominasi histogram raster
-                        type: 'logarithmic', 
-                        title: { display: true, text: 'Jumlah Piksel (Log Scale)', color: '#ccc' },
+                    x: {
                         ticks: { color: '#ccc' }
                     }
                 },
                 plugins: {
-                    legend: { labels: { color: '#fff' } }
+                    legend: {
+                        labels: { color: '#fff' }
+                    }
                 }
             }
         });
     }
 
-    // Jalankan saat load
+    // Jalankan saat load awal halaman
     window.onload = loadAndFixTiff;
 </script>
 
