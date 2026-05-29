@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <title>Visualisasi GeoTIFF - Diperbaiki</title>
+    <!-- Library GeoTIFF -->
     <script src="https://cdn.jsdelivr.net/npm/geotiff"></script>
+    <!-- Library Chart.js untuk Grafik -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #222; color: white; text-align: center; padding: 10px; }
         .card { max-width: 1000px; margin: auto; background: #333; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
@@ -11,6 +14,11 @@
         .canvas-container { max-width: 100%; max-height: 80vh; overflow: auto; border: 2px solid #666; margin-top: 10px; background: black;}
         canvas { display: block; margin: auto; max-width: 100%; height: auto; }
         .info { margin-top: 10px; color: #ccc; font-size: 0.9em; font-style: italic; }
+        
+        /* Tambahan Style untuk Legenda dan Grafik */
+        .legend-container { display: flex; align-items: center; justify-content: center; margin: 20px 0; gap: 15px; font-weight: bold;}
+        .legend-bar { width: 300px; height: 20px; background: linear-gradient(to right, black, white); border: 1px solid #777; border-radius: 4px;}
+        .chart-container { margin-top: 30px; background: #2a2a2a; padding: 15px; border-radius: 8px; border: 1px solid #555; }
     </style>
 </head>
 <body>
@@ -28,18 +36,35 @@
         <canvas id="tiffCanvas"></canvas>
     </div>
     
+    <!-- Bagian Legenda -->
+    <div id="legendContainer" class="legend-container" style="display: none;">
+        <span>0 (Min)</span>
+        <div class="legend-bar"></div>
+        <span id="legendMax">Max</span>
+    </div>
+
     <div id="status" class="info">Memuat data...</div>
+
+    <!-- Bagian Grafik Histogram -->
+    <div class="chart-container" id="chartWrapper" style="display: none;">
+        <h4>Distribusi Intensitas Piksel (Histogram)</h4>
+        <canvas id="histogramChart"></canvas>
+    </div>
 </div>
 
 <script>
+    let chartInstance = null; // Menyimpan instance chart agar bisa di-destroy saat ganti tahun
+
     async function loadAndFixTiff() {
         const fileName = document.getElementById('yearSelect').value;
         const canvas = document.getElementById('tiffCanvas');
         const status = document.getElementById('status');
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-        // Reset canvas
+        // Reset tampilan
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        document.getElementById('legendContainer').style.display = 'none';
+        document.getElementById('chartWrapper').style.display = 'none';
         status.innerHTML = `Membaca ${fileName}...`;
 
         try {
@@ -53,18 +78,16 @@
             const width = image.getWidth();
             const height = image.getHeight();
             
-            // Baca data raster mentah, jangan readRGB()
+            // Baca data raster mentah
             const rasterData = await image.readRasters({ pool: new GeoTIFF.Pool() });
             
             status.innerHTML = `Resolusi: ${width}x${height}px. Menormalisasi data...`;
 
-            // Setup Canvas
             canvas.width = width;
             canvas.height = height;
             const imageData = ctx.createImageData(width, height);
             
-            // LOGIC UTAMA: Tentukan tipe data dan normalisasi
-            const band0 = rasterData[0]; // Kita asumsikan Band 1 adalah data utama (Grayscale)
+            const band0 = rasterData[0];
             
             // 1. Cari nilai Max mentah
             let maxVal = 0;
@@ -72,34 +95,87 @@
                 if (band0[i] > maxVal) maxVal = band0[i];
             }
 
-            // Fallback jika maxVal terlalu kecil (biar gak error/noise)
             if (maxVal < 255) maxVal = 255; 
 
-            //console.log("Max raw value:", maxVal); // Untuk debug
+            // Array untuk menyimpan data histogram (0-255)
+            const histogramData = new Array(256).fill(0);
 
-            // 2. Normalisasi dan masukkan ke ImageData
+            // 2. Normalisasi dan masukkan ke ImageData & Hitung Histogram
             for (let i = 0, j = 0; i < band0.length; i++, j += 4) {
-                // Skala: (nilaiMentah / maxMentah) * 255
-                // Gunakan Math.round agar integer 8-bit valid
                 let scaledVal = Math.round((band0[i] / maxVal) * 255);
                 
-                // Pastikan nilai di dalam rentang 0-255
                 if (scaledVal > 255) scaledVal = 255;
                 if (scaledVal < 0 || isNaN(scaledVal)) scaledVal = 0;
+
+                // Hitung frekuensi piksel untuk grafik
+                histogramData[scaledVal]++;
 
                 imageData.data[j]     = scaledVal; // R
                 imageData.data[j + 1] = scaledVal; // G
                 imageData.data[j + 2] = scaledVal; // B
-                imageData.data[j + 3] = 255;       // Alpha (Opaque)
+                imageData.data[j + 3] = 255;       // Alpha
             }
 
             ctx.putImageData(imageData, 0, 0);
+            
+            // 3. Tampilkan dan Perbarui Legenda
+            document.getElementById('legendContainer').style.display = 'flex';
+            document.getElementById('legendMax').innerText = `${maxVal} (Max)`;
+
+            // 4. Buat Grafik
+            renderChart(fileName, histogramData);
+
             status.innerHTML = `Selesai memuat ${fileName}. Max Value mentah: ${maxVal}`;
 
         } catch (err) {
             console.error(err);
             status.innerHTML = `<span style="color:red">Error: ${err.message}</span>`;
         }
+    }
+
+    // Fungsi merender grafik histogram
+    function renderChart(title, data) {
+        document.getElementById('chartWrapper').style.display = 'block';
+        const ctxChart = document.getElementById('histogramChart').getContext('2d');
+        
+        // Hancurkan chart sebelumnya jika ada (mencegah tumpang tindih canvas)
+        if (chartInstance) {
+            chartInstance.destroy();
+        }
+
+        const labels = Array.from({length: 256}, (_, i) => i); // Label X: 0 - 255
+
+        chartInstance = new Chart(ctxChart, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: `Frekuensi Nilai Piksel - ${title}`,
+                    data: data,
+                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Intensitas Piksel (Normalisasi 0-255)', color: '#ccc' },
+                        ticks: { color: '#ccc' }
+                    },
+                    y: {
+                        // Menggunakan skala logaritmik karena nilai 0 (background) biasanya mendominasi histogram raster
+                        type: 'logarithmic', 
+                        title: { display: true, text: 'Jumlah Piksel (Log Scale)', color: '#ccc' },
+                        ticks: { color: '#ccc' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#fff' } }
+                }
+            }
+        });
     }
 
     // Jalankan saat load
