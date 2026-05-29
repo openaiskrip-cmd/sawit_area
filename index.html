@@ -140,7 +140,7 @@
             const pixelSizeMeter = parseFloat(document.getElementById('pixelSize').value) || 10;
             
             // Rumus Luas 1 Piksel ke Hektar = (Panjang * Lebar) / 10.000
-            const areaPerPixelHectare = (pixelSizeMeter * pixelSizeMeter) / 10000;
+            const areaPerPixelHectare = (pixelSizeMeter * pixelSizeMeter) / 10;
 
             const nilaiSawit = (countSawit * areaPerPixelHectare).toFixed(2);
             const nilaiBukanSawit = (countBukanSawit * areaPerPixelHectare).toFixed(2);
